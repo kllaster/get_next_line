@@ -3,24 +3,29 @@ CC				= gcc
 RM				= rm -f
 LIB				= ar rc
 MKDIR			= mkdir -p
-DEBUG			= 1
+DEBUG			= 0
 ifeq ($(DEBUG), 1)
 	DEBUG_FLAGS	= -fsanitize=address -g
+else
+	DEBUG_FLAGS = -O2 -flto -D_FORTIFY_SOURCE=2 -fpie
 endif
-COMMON_FLAGS	= -Wall -Wextra -Werror -MMD -c -D BUFFER_SIZE=500
-CFLAGS			= $(COMMON_FLAGS) -march=native -O2 -msse4a -flto -pipe
+PROTECT_FLAGS	= -fno-exceptions -fstack-protector-all
+COMMON_FLAGS	= -std=c99 -Wall -Wextra -Werror -Wfloat-equal -MMD -pipe
+MAKEFLAGS		= -j --output-sync=recurse --no-print-directory
+CFLAGS			= $(COMMON_FLAGS) $(DEBUG_FLAGS) $(PROTECT_FLAGS) -D BUFFER_SIZE=32
 
 BIN_DIR			= bin/
-BUILD_DIR		= build/
-HEADERS			= include/
+SRC_DIR			= srcs
+BUILD_DIR		= build
+INC_DIR			= include
 
-SRCS			= srcs/get_next_line.c\
-			  	  srcs/get_next_line_utils.c\
+SRCS			= $(shell find $(SRC_DIR) -name "*.c")
 
 OBJS			= $(notdir $(SRCS))
-OBJS			:= $(OBJS:%.c=$(BUILD_DIR)%.o)
+OBJS			:= $(subst $(SRC_DIR), $(BUILD_DIR), $(SRCS:%.c=%.o))
+NAME			:= $(addprefix $(BIN_DIR), $(NAME))
 DEPS			= $(OBJS:.o=.d)
-NAME 			:= $(addprefix $(BIN_DIR), $(NAME))
+VPATH			= $(SRC_DIR):$(INC_DIR):$(BUILD_DIR)
 
 all:			$(NAME)
 
@@ -29,9 +34,9 @@ $(NAME):		$(OBJS)
 				$(LIB) $(NAME) $(OBJS)
 				ranlib $(NAME)
 
-$(OBJS):		$(SRCS)
-				$(MKDIR) $(dir $@)
-				$(CC) $(CFLAGS) -I $(HEADERS) -c $< -o $@
+$(BUILD_DIR)/%.o:  $(SRC_DIR)/%.c
+				@if [ ! -d $(dir $@) ] ; then $(MKDIR) $(dir $@); fi
+				$(CC) $(CFLAGS) -I $(INC_DIR) -c $< -o $@
 
 clean:
 				$(RM) $(OBJS)
@@ -40,7 +45,11 @@ clean:
 fclean:			clean
 				$(RM) $(NAME)
 
-re:				fclean all
+re:
+				$(MAKE) fclean
+				$(MAKE) all
 
--include		$(DEPS)
+ifeq ($(findstring $(MAKECMDGOALS), clean fclean re),)
+	-include $(DEPS)
+endif
 .PHONY:			all, clean, fclean, re
